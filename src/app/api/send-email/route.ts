@@ -4,10 +4,16 @@ import { NextRequest, NextResponse } from "next/server";
 // Vous pouvez utiliser Resend, SendGrid, ou tout autre service d'email
 // Pour l'instant, on simule l'envoi (à remplacer par un vrai service)
 
-const STATUS_MESSAGES: Record<string, { subject: string; body: string }> = {
+type MessageConfig = {
+  subject: string;
+  // body peut accepter 1 ou 2 arguments selon le cas (name, [status])
+  body: (...args: string[]) => string;
+};
+
+const STATUS_MESSAGES: Record<string, MessageConfig> = {
   confirmation: {
     subject: "Confirmation de votre demande - WebStarter",
-    body: (name: string) => `
+    body: (name = "Client") => `
 Bonjour ${name},
 
 Nous avons bien reçu votre demande de projet web. ✅
@@ -22,7 +28,7 @@ L'équipe WebStarter 🚀
   },
   status_change: {
     subject: "Mise à jour de votre projet - WebStarter",
-    body: (name: string, status: string) => {
+    body: (name = "Client", status = "") => {
       const statusMessages: Record<string, string> = {
         acceptee: `
 Bonjour ${name},
@@ -78,14 +84,16 @@ L'équipe WebStarter 🚀
         `,
       };
 
-      return statusMessages[status] || `
+      return (
+        statusMessages[status] || `
 Bonjour ${name},
 
 Le statut de votre projet a été mis à jour: ${status}
 
 Cordialement,
 L'équipe WebStarter 🚀
-      `;
+      `
+      );
     },
   },
 };
