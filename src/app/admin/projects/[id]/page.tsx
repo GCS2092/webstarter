@@ -145,7 +145,7 @@ export default function ProjectDetailPage() {
     const { error } = await supabase.from("messages").insert({
       project_id: projectId,
       sender_type: "admin",
-      sender_email: "admin@webstarter.com",
+      sender_email: typeof window !== "undefined" ? localStorage.getItem("admin_email") || "admin@webstarter.com" : "admin@webstarter.com",
       message: newMessage,
     });
 

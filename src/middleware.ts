@@ -28,7 +28,16 @@ export async function middleware(req: NextRequest) {
   );
 
   // Vérifier l'authentification pour les routes admin
-  if (req.nextUrl.pathname.startsWith("/admin") && !req.nextUrl.pathname.startsWith("/admin/login")) {
+  // Exclure les pages de setup et configuration
+  const isSetupPage = 
+    req.nextUrl.pathname.startsWith("/admin/login") ||
+    req.nextUrl.pathname.startsWith("/admin/setup") ||
+    req.nextUrl.pathname.startsWith("/admin/set-password") ||
+    req.nextUrl.pathname.startsWith("/admin/add-admin");
+  
+  // La page /admin/manage nécessite une authentification (c'est dans le dashboard)
+
+  if (req.nextUrl.pathname.startsWith("/admin") && !isSetupPage) {
     const {
       data: { session },
     } = await supabase.auth.getSession();

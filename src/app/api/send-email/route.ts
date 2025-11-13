@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
+import nodemailer from "nodemailer";
 
-// Cette route envoie des emails via un service externe
-// Vous pouvez utiliser Resend, SendGrid, ou tout autre service d'email
-// Pour l'instant, on simule l'envoi (à remplacer par un vrai service)
-
-type MessageConfig = {
-  subject: string;
-  // body peut accepter 1 ou 2 arguments selon le cas (name, [status])
-  body: (...args: string[]) => string;
+// Configuration Gmail SMTP
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.GMAIL_USER, // Votre adresse Gmail
+      pass: process.env.GMAIL_APP_PASSWORD, // Mot de passe d'application Gmail
+    },
+  });
 };
 
-const STATUS_MESSAGES: Record<string, MessageConfig> = {
+const STATUS_MESSAGES: Record<string, { subject: string; body: string }> = {
   confirmation: {
     subject: "Confirmation de votre demande - WebStarter",
-    body: (name = "Client") => `
+    body: (name: string) => `
 Bonjour ${name},
 
 Nous avons bien reçu votre demande de projet web. ✅
@@ -28,7 +30,7 @@ L'équipe WebStarter 🚀
   },
   status_change: {
     subject: "Mise à jour de votre projet - WebStarter",
-    body: (name = "Client", status = "") => {
+    body: (name: string, status: string) => {
       const statusMessages: Record<string, string> = {
         acceptee: `
 Bonjour ${name},
@@ -84,16 +86,14 @@ L'équipe WebStarter 🚀
         `,
       };
 
-      return (
-        statusMessages[status] || `
+      return statusMessages[status] || `
 Bonjour ${name},
 
 Le statut de votre projet a été mis à jour: ${status}
 
 Cordialement,
 L'équipe WebStarter 🚀
-      `
-      );
+      `;
     },
   },
 };
@@ -122,32 +122,66 @@ export async function POST(request: NextRequest) {
         ? messageConfig.body(clientName || "Client")
         : messageConfig.body(clientName || "Client", status || "");
 
-    // TODO: Remplacer par un vrai service d'email (Resend, SendGrid, etc.)
-    // Exemple avec Resend:
-    /*
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
-      from: 'WebStarter <noreply@webstarter.com>',
-      to: to,
-      subject: subject,
-      html: bodyText.replace(/\n/g, '<br>'),
-    });
-    */
+    // Vérifier que Gmail est configuré
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error("Gmail non configuré - Email simulé:", {
+        to,
+        subject,
+        body: bodyText,
+      });
+      return NextResponse.json({
+        success: true,
+        message: "Email simulé (Gmail non configuré)",
+        warning: "Configurez GMAIL_USER et GMAIL_APP_PASSWORD dans .env.local",
+      });
+    }
 
-    // Pour l'instant, on log juste (à remplacer)
-    console.log("Email à envoyer:", {
-      to,
-      subject,
-      body: bodyText,
-    });
+    // Envoyer l'email via Gmail
+    try {
+      const transporter = createTransporter();
+      const htmlBody = bodyText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => `<p style="margin: 10px 0;">${line}</p>`)
+        .join("");
 
-    // Simuler un délai d'envoi
-    await new Promise((resolve) => setTimeout(resolve, 100));
+      await transporter.sendMail({
+        from: `WebStarter <${process.env.GMAIL_USER}>`,
+        to: to,
+        subject: subject,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background-color: #000; color: #fff; padding: 20px; text-align: center;">
+              <h1 style="margin: 0;">WebStarter 🚀</h1>
+            </div>
+            <div style="padding: 20px; background-color: #f9f9f9;">
+              ${htmlBody}
+            </div>
+            <div style="padding: 20px; text-align: center; color: #666; font-size: 12px;">
+              <p>Cet email a été envoyé automatiquement par WebStarter</p>
+            </div>
+          </div>
+        `,
+        text: bodyText, // Version texte pour les clients qui ne supportent pas HTML
+      });
 
-    return NextResponse.json({
-      success: true,
-      message: "Email envoyé (simulé - à configurer avec un vrai service)",
-    });
+      console.log("Email envoyé avec succès à:", to);
+
+      return NextResponse.json({
+        success: true,
+        message: "Email envoyé avec succès",
+      });
+    } catch (emailError: any) {
+      console.error("Erreur lors de l'envoi de l'email:", emailError);
+      return NextResponse.json(
+        {
+          error: "Erreur lors de l'envoi de l'email",
+          details: emailError.message,
+        },
+        { status: 500 }
+      );
+    }
   } catch (error: any) {
     console.error("Erreur envoi email:", error);
     return NextResponse.json(

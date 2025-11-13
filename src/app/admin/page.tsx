@@ -234,6 +234,20 @@ export default function AdminDashboard() {
       <div className="mt-4 text-sm text-gray-600">
         Affichage de {filteredProjects.length} projet(s) sur {projects.length}
       </div>
+
+      {/* Section Gestion Admin */}
+      <div className="mt-8 p-6 bg-white border border-gray-200 rounded-lg">
+        <h2 className="text-xl font-bold mb-4">⚙️ Gestion des Administrateurs</h2>
+        <p className="text-gray-600 mb-4">
+          Gérez les administrateurs de la plateforme : ajoutez des admins, définissez des mots de passe, etc.
+        </p>
+        <Link
+          href="/admin/manage"
+          className="inline-block bg-gray-800 text-white px-6 py-2 rounded-md font-medium hover:bg-gray-900 transition"
+        >
+          Gérer les admins →
+        </Link>
+      </div>
     </div>
   );
 }

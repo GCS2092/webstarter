@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { isAdmin } from "@/lib/admin-check";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -16,6 +17,7 @@ export default function AdminLoginPage() {
     setError("");
 
     try {
+      // Authentification Supabase
       const { data, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -28,9 +30,20 @@ export default function AdminLoginPage() {
       }
 
       if (data.user) {
-        // Vérifier si l'utilisateur est admin (vous pouvez ajouter une table admin_users)
-        // Pour l'instant, on accepte tous les utilisateurs authentifiés
+        // Vérifier si l'utilisateur est admin dans la table admin_users
+        const userIsAdmin = await isAdmin(email);
+
+        if (!userIsAdmin) {
+          // Déconnexion si l'utilisateur n'est pas admin
+          await supabase.auth.signOut();
+          setError("Accès refusé. Vous n'êtes pas autorisé à accéder à cette section.");
+          setLoading(false);
+          return;
+        }
+
+        // Utilisateur authentifié et admin confirmé
         localStorage.setItem("admin_authenticated", "true");
+        localStorage.setItem("admin_email", email);
         router.push("/admin");
       }
     } catch (err: any) {
