@@ -24,7 +24,24 @@ export default function AdminLoginPage() {
       });
 
       if (authError) {
-        setError("Email ou mot de passe incorrect");
+        // Messages d'erreur plus détaillés
+        console.error("Erreur auth détaillée:", authError);
+        
+        if (authError.message.includes("Invalid login credentials") || 
+            authError.message.includes("invalid") ||
+            authError.message.includes("400")) {
+          setError(
+            "Email ou mot de passe incorrect. " +
+            "Vérifiez que : 1) Le mot de passe a bien été défini via /admin/set-password, " +
+            "2) Vous utilisez exactement le même email, " +
+            "3) Le mot de passe est correct. " +
+            "Utilisez la page de diagnostic pour vérifier votre configuration."
+          );
+        } else if (authError.message.includes("Email not confirmed")) {
+          setError("Votre email n'est pas confirmé. Vérifiez votre boîte mail.");
+        } else {
+          setError(`Erreur: ${authError.message}. Code: ${authError.status || 'N/A'}`);
+        }
         setLoading(false);
         return;
       }
@@ -99,9 +116,38 @@ export default function AdminLoginPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-sm text-gray-600 text-center">
-          Accès réservé aux administrateurs
-        </p>
+        <div className="mt-6 space-y-2 text-center">
+          <p className="text-sm text-gray-600">
+            Accès réservé aux administrateurs
+          </p>
+          <div className="text-xs text-gray-500 space-y-1">
+            <p>Vous n'avez pas encore de mot de passe ?</p>
+            <a
+              href="/admin/set-password"
+              className="text-blue-600 hover:underline font-medium"
+            >
+              Définir un mot de passe →
+            </a>
+          </div>
+          <div className="text-xs text-gray-500 space-y-1 pt-2">
+            <p>Vous n'êtes pas encore admin ?</p>
+            <a
+              href="/admin/add-admin"
+              className="text-blue-600 hover:underline font-medium"
+            >
+              Ajouter comme admin →
+            </a>
+          </div>
+          <div className="text-xs text-gray-500 space-y-1 pt-2 border-t border-gray-200 mt-2">
+            <p>Problème de connexion ?</p>
+            <a
+              href="/admin/check-status"
+              className="text-orange-600 hover:underline font-medium"
+            >
+              Diagnostic admin →
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -30,6 +30,15 @@ export default function ManageAdminsPage() {
   const [passwordError, setPasswordError] = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState(false);
 
+  // Réinitialisation de mot de passe pour un admin spécifique
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+
   useEffect(() => {
     loadAdmins();
   }, []);
@@ -163,6 +172,65 @@ export default function ManageAdminsPage() {
     }
   };
 
+  const handleResetPassword = async (email: string) => {
+    setResetEmail(email);
+    setShowResetModal(true);
+    setResetPassword("");
+    setResetConfirmPassword("");
+    setResetError("");
+    setResetSuccess(false);
+  };
+
+  const submitResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetLoading(true);
+    setResetError("");
+    setResetSuccess(false);
+
+    if (resetPassword.length < 6) {
+      setResetError("Le mot de passe doit contenir au moins 6 caractères");
+      setResetLoading(false);
+      return;
+    }
+
+    if (resetPassword !== resetConfirmPassword) {
+      setResetError("Les mots de passe ne correspondent pas");
+      setResetLoading(false);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/reset-admin-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: resetEmail,
+          newPassword: resetPassword,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setResetError(data.details || data.error || "Erreur lors de la réinitialisation");
+        setResetLoading(false);
+        return;
+      }
+
+      setResetSuccess(true);
+      setTimeout(() => {
+        setShowResetModal(false);
+        setResetPassword("");
+        setResetConfirmPassword("");
+        setResetSuccess(false);
+      }, 2000);
+    } catch (err: any) {
+      setResetError("Erreur de connexion au serveur");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-8">
@@ -254,16 +322,25 @@ export default function ManageAdminsPage() {
                         {new Date(admin.created_at).toLocaleDateString("fr-FR")}
                       </td>
                       <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleAdminStatus(admin.id, admin.is_active)}
-                          className={`px-3 py-1 rounded text-sm font-medium transition ${
-                            admin.is_active
-                              ? "bg-red-100 text-red-700 hover:bg-red-200"
-                              : "bg-green-100 text-green-700 hover:bg-green-200"
-                          }`}
-                        >
-                          {admin.is_active ? "Désactiver" : "Activer"}
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => toggleAdminStatus(admin.id, admin.is_active)}
+                            className={`px-3 py-1 rounded text-sm font-medium transition ${
+                              admin.is_active
+                                ? "bg-red-100 text-red-700 hover:bg-red-200"
+                                : "bg-green-100 text-green-700 hover:bg-green-200"
+                            }`}
+                          >
+                            {admin.is_active ? "Désactiver" : "Activer"}
+                          </button>
+                          <button
+                            onClick={() => handleResetPassword(admin.email)}
+                            className="px-3 py-1 rounded text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition"
+                            title="Réinitialiser le mot de passe"
+                          >
+                            🔑 Réinitialiser
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -415,6 +492,96 @@ export default function ManageAdminsPage() {
               {passwordLoading ? "Définition en cours..." : "Définir le mot de passe"}
             </button>
           </form>
+        </div>
+      )}
+
+      {/* Modal de réinitialisation de mot de passe */}
+      {showResetModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Réinitialiser le mot de passe</h2>
+              <button
+                onClick={() => setShowResetModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+              <p className="font-semibold mb-1">⚠️ Important :</p>
+              <p>
+                Les mots de passe sont hashés et ne peuvent pas être récupérés en clair.
+                Vous pouvez uniquement définir un nouveau mot de passe.
+              </p>
+            </div>
+
+            <p className="text-sm text-gray-600 mb-4">
+              Réinitialiser le mot de passe pour : <strong>{resetEmail}</strong>
+            </p>
+
+            {resetError && (
+              <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+                {resetError}
+              </div>
+            )}
+
+            {resetSuccess && (
+              <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded text-sm">
+                Mot de passe réinitialisé avec succès !
+              </div>
+            )}
+
+            <form onSubmit={submitResetPassword} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Nouveau mot de passe <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black"
+                  placeholder="Minimum 6 caractères"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Confirmer le mot de passe <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={resetConfirmPassword}
+                  onChange={(e) => setResetConfirmPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black"
+                  placeholder="Retapez le mot de passe"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetModal(false)}
+                  className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-md font-medium hover:bg-gray-50 transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetLoading}
+                  className="flex-1 bg-black text-white px-4 py-2 rounded-md font-medium hover:bg-gray-800 transition disabled:opacity-50"
+                >
+                  {resetLoading ? "Réinitialisation..." : "Réinitialiser"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
