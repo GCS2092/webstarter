@@ -50,6 +50,13 @@ export async function POST(request: NextRequest) {
       // L'utilisateur existe déjà, on le met à jour
       const user = existingUser.users.find((u: any) => u.email === email);
       
+      if (!user) {
+        return NextResponse.json(
+          { error: "Utilisateur trouvé mais impossible de récupérer les détails" },
+          { status: 500 }
+        );
+      }
+      
       // Mettre à jour le mot de passe si fourni
       if (password) {
         await supabaseAdmin.auth.admin.updateUserById(user.id, {
@@ -75,7 +82,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         message: "Utilisateur existant mis à jour et ajouté comme admin",
-        userId: user.id,
+        userId: user?.id || "unknown",
       });
     }
 

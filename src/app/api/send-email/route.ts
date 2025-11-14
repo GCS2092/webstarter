@@ -12,7 +12,7 @@ const createTransporter = () => {
   });
 };
 
-const STATUS_MESSAGES: Record<string, { subject: string; body: string }> = {
+const STATUS_MESSAGES: Record<string, { subject: string; body: (name: string, status?: string) => string }> = {
   confirmation: {
     subject: "Confirmation de votre demande - WebStarter",
     body: (name: string) => `
@@ -30,7 +30,7 @@ L'équipe WebStarter 🚀
   },
   status_change: {
     subject: "Mise à jour de votre projet - WebStarter",
-    body: (name: string, status: string) => {
+    body: (name: string, status?: string) => {
       const statusMessages: Record<string, string> = {
         acceptee: `
 Bonjour ${name},
@@ -86,10 +86,10 @@ L'équipe WebStarter 🚀
         `,
       };
 
-      return statusMessages[status] || `
+      return statusMessages[status || ""] || `
 Bonjour ${name},
 
-Le statut de votre projet a été mis à jour: ${status}
+Le statut de votre projet a été mis à jour: ${status || "inconnu"}
 
 Cordialement,
 L'équipe WebStarter 🚀
