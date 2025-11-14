@@ -54,6 +54,7 @@ export default function FormRequest() {
     formState: { errors },
   } = useForm<RequestFormData>({
     resolver: zodResolver(requestSchema),
+    mode: "onBlur", // Valider au blur pour une meilleure UX
   });
 
   const description = watch("description") || "";
@@ -161,8 +162,9 @@ export default function FormRequest() {
         await uploadFiles(project.id, uploadedFiles);
       }
 
+      // Envoyer l'email de confirmation
       try {
-        await fetch("/api/send-email", {
+        const emailResponse = await fetch("/api/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -172,8 +174,19 @@ export default function FormRequest() {
             clientName: data.client_name,
           }),
         });
-      } catch (emailError) {
-        console.error("Erreur envoi email:", emailError);
+
+        const emailResult = await emailResponse.json();
+        
+        if (!emailResult.success) {
+          console.error("Erreur envoi email:", emailResult);
+          // Ne pas bloquer la soumission si l'email échoue, mais logger l'erreur
+          console.warn("Le projet a été créé mais l'email n'a pas pu être envoyé:", emailResult.message || emailResult.error);
+        } else {
+          console.log("Email de confirmation envoyé avec succès");
+        }
+      } catch (emailError: any) {
+        console.error("Erreur lors de l'appel API email:", emailError);
+        // Ne pas bloquer la soumission si l'email échoue
       }
 
       setSubmitSuccess(true);
@@ -223,7 +236,42 @@ export default function FormRequest() {
         </p>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100">
+      <form 
+        onSubmit={handleSubmit(
+          onSubmit,
+          (errors) => {
+            // Afficher les erreurs de validation
+            console.log("Erreurs de validation:", errors);
+            // Faire défiler vers la première erreur
+            const firstError = Object.keys(errors)[0];
+            if (firstError) {
+              setTimeout(() => {
+                const element = document.querySelector(`[name="${firstError}"]`);
+                if (element) {
+                  element.scrollIntoView({ behavior: "smooth", block: "center" });
+                  (element as HTMLElement).focus();
+                }
+              }, 100);
+            }
+          }
+        )} 
+        className="space-y-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100"
+      >
+        {/* Message d'erreur général */}
+        {Object.keys(errors).length > 0 && (
+          <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
+            <p className="font-semibold text-red-800 mb-2">
+              ⚠️ Veuillez corriger les erreurs suivantes :
+            </p>
+            <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
+              {errors.client_name && <li>{errors.client_name.message}</li>}
+              {errors.client_email && <li>{errors.client_email.message}</li>}
+              {errors.project_type && <li>{errors.project_type.message}</li>}
+              {errors.description && <li>{errors.description.message}</li>}
+            </ul>
+          </div>
+        )}
+
         {/* Informations personnelles */}
         <div className="space-y-6">
           <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
@@ -237,11 +285,15 @@ export default function FormRequest() {
               </label>
               <input
                 {...register("client_name")}
-                className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
+                  errors.client_name ? "border-red-300 bg-red-50" : "border-gray-200"
+                }`}
                 placeholder="Votre nom complet"
               />
               {errors.client_name && (
-                <p className="text-red-500 text-sm mt-1">{errors.client_name.message}</p>
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                  ⚠️ {errors.client_name.message}
+                </div>
               )}
             </div>
 
@@ -252,11 +304,15 @@ export default function FormRequest() {
               <input
                 type="email"
                 {...register("client_email")}
-                className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
+                  errors.client_email ? "border-red-300 bg-red-50" : "border-gray-200"
+                }`}
                 placeholder="votre@email.com"
               />
               {errors.client_email && (
-                <p className="text-red-500 text-sm mt-1">{errors.client_email.message}</p>
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                  ⚠️ {errors.client_email.message}
+                </div>
               )}
             </div>
           </div>
@@ -286,7 +342,9 @@ export default function FormRequest() {
             </label>
             <select
               {...register("project_type")}
-              className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition bg-white"
+              className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition bg-white ${
+                errors.project_type ? "border-red-300 bg-red-50" : "border-gray-200"
+              }`}
             >
               <option value="">Sélectionnez un type</option>
               <option value="portfolio">Portfolio / Site vitrine</option>
@@ -297,15 +355,17 @@ export default function FormRequest() {
               <option value="autre">Autre</option>
             </select>
             {errors.project_type && (
-              <p className="text-red-500 text-sm mt-1">{errors.project_type.message}</p>
+              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                ⚠️ {errors.project_type.message}
+              </div>
             )}
           </div>
 
           <div>
             <label className="block text-sm font-semibold mb-2 text-gray-700">
               Description du projet <span className="text-red-500">*</span>
-              <span className="text-gray-500 text-xs ml-2">
-                ({description.length} caractères)
+              <span className={`text-xs ml-2 ${description.length < 10 ? "text-red-500 font-semibold" : "text-gray-500"}`}>
+                ({description.length} caractères - minimum 10)
               </span>
             </label>
             <textarea
@@ -315,11 +375,20 @@ export default function FormRequest() {
                 register("description").onChange(e);
               }}
               rows={6}
-              className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none"
+              className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none ${
+                errors.description ? "border-red-300 bg-red-50" : "border-gray-200"
+              }`}
               placeholder="Décrivez votre projet en détail : objectifs, fonctionnalités souhaitées, public cible..."
             />
             {errors.description && (
-              <p className="text-red-500 text-sm mt-1">{errors.description.message}</p>
+              <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                <p className="font-semibold">⚠️ {errors.description.message}</p>
+                {description.length < 10 && (
+                  <p className="text-xs mt-1">
+                    Il manque {10 - description.length} caractère(s) pour valider ce champ.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -128,16 +128,26 @@ export async function POST(request: NextRequest) {
         to,
         subject,
         body: bodyText,
+        hasGmailUser: !!process.env.GMAIL_USER,
+        hasGmailPassword: !!process.env.GMAIL_APP_PASSWORD,
       });
       return NextResponse.json({
-        success: true,
-        message: "Email simulé (Gmail non configuré)",
+        success: false,
+        message: "Email non envoyé - Gmail non configuré",
         warning: "Configurez GMAIL_USER et GMAIL_APP_PASSWORD dans .env.local",
+        details: {
+          hasGmailUser: !!process.env.GMAIL_USER,
+          hasGmailPassword: !!process.env.GMAIL_APP_PASSWORD,
+        },
       });
     }
 
     // Envoyer l'email via Gmail
     try {
+      console.log("Tentative d'envoi d'email à:", to);
+      console.log("GMAIL_USER configuré:", !!process.env.GMAIL_USER);
+      console.log("GMAIL_APP_PASSWORD configuré:", !!process.env.GMAIL_APP_PASSWORD);
+
       const transporter = createTransporter();
       const htmlBody = bodyText
         .split("\n")
@@ -146,7 +156,7 @@ export async function POST(request: NextRequest) {
         .map((line) => `<p style="margin: 10px 0;">${line}</p>`)
         .join("");
 
-      await transporter.sendMail({
+      const mailOptions = {
         from: `WebStarter <${process.env.GMAIL_USER}>`,
         to: to,
         subject: subject,
@@ -164,20 +174,59 @@ export async function POST(request: NextRequest) {
           </div>
         `,
         text: bodyText, // Version texte pour les clients qui ne supportent pas HTML
+      };
+
+      console.log("Options email:", {
+        from: mailOptions.from,
+        to: mailOptions.to,
+        subject: mailOptions.subject,
       });
 
-      console.log("Email envoyé avec succès à:", to);
+      const info = await transporter.sendMail(mailOptions);
+
+      console.log("Email envoyé avec succès:", {
+        messageId: info.messageId,
+        to: to,
+        response: info.response,
+      });
 
       return NextResponse.json({
         success: true,
         message: "Email envoyé avec succès",
+        messageId: info.messageId,
+        response: info.response,
       });
     } catch (emailError: any) {
-      console.error("Erreur lors de l'envoi de l'email:", emailError);
+      console.error("Erreur détaillée lors de l'envoi de l'email:", {
+        message: emailError.message,
+        code: emailError.code,
+        command: emailError.command,
+        response: emailError.response,
+        responseCode: emailError.responseCode,
+        stack: emailError.stack,
+      });
+
+      // Messages d'erreur plus détaillés
+      let errorMessage = emailError.message;
+      if (emailError.code === "EAUTH") {
+        errorMessage = "Erreur d'authentification Gmail. Vérifiez votre email et mot de passe d'application.";
+      } else if (emailError.code === "ECONNECTION") {
+        errorMessage = "Impossible de se connecter au serveur Gmail. Vérifiez votre connexion internet.";
+      } else if (emailError.responseCode === 535) {
+        errorMessage = "Mot de passe d'application Gmail incorrect. Vérifiez GMAIL_APP_PASSWORD dans .env.local";
+      }
+
       return NextResponse.json(
         {
+          success: false,
           error: "Erreur lors de l'envoi de l'email",
-          details: emailError.message,
+          message: errorMessage,
+          details: {
+            code: emailError.code,
+            command: emailError.command,
+            response: emailError.response,
+            responseCode: emailError.responseCode,
+          },
         },
         { status: 500 }
       );

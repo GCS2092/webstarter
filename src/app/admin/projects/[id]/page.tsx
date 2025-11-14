@@ -119,7 +119,7 @@ export default function ProjectDetailPage() {
 
       // Envoyer email automatique
       try {
-        await fetch("/api/send-email", {
+        const emailResponse = await fetch("/api/send-email", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -130,8 +130,18 @@ export default function ProjectDetailPage() {
             status: newStatus,
           }),
         });
-      } catch (emailError) {
-        console.error("Erreur email:", emailError);
+
+        const emailResult = await emailResponse.json();
+        
+        if (!emailResult.success) {
+          console.error("Erreur envoi email:", emailResult);
+          alert(`Le statut a été mis à jour mais l'email n'a pas pu être envoyé: ${emailResult.message || emailResult.error}`);
+        } else {
+          console.log("Email de changement de statut envoyé avec succès");
+        }
+      } catch (emailError: any) {
+        console.error("Erreur lors de l'appel API email:", emailError);
+        alert("Le statut a été mis à jour mais une erreur est survenue lors de l'envoi de l'email.");
       }
     }
 

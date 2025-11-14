@@ -236,17 +236,32 @@ export default function AdminDashboard() {
       </div>
 
       {/* Section Gestion Admin */}
-      <div className="mt-8 p-6 bg-white border border-gray-200 rounded-lg">
-        <h2 className="text-xl font-bold mb-4">⚙️ Gestion des Administrateurs</h2>
-        <p className="text-gray-600 mb-4">
-          Gérez les administrateurs de la plateforme : ajoutez des admins, définissez des mots de passe, etc.
-        </p>
-        <Link
-          href="/admin/manage"
-          className="inline-block bg-gray-800 text-white px-6 py-2 rounded-md font-medium hover:bg-gray-900 transition"
-        >
-          Gérer les admins →
-        </Link>
+      <div className="mt-8 grid md:grid-cols-2 gap-6">
+        <div className="p-6 bg-white border border-gray-200 rounded-lg">
+          <h2 className="text-xl font-bold mb-4">⚙️ Gestion des Administrateurs</h2>
+          <p className="text-gray-600 mb-4">
+            Gérez les administrateurs de la plateforme : ajoutez des admins, définissez des mots de passe, etc.
+          </p>
+          <Link
+            href="/admin/manage"
+            className="inline-block bg-gray-800 text-white px-6 py-2 rounded-md font-medium hover:bg-gray-900 transition"
+          >
+            Gérer les admins →
+          </Link>
+        </div>
+
+        <div className="p-6 bg-white border border-gray-200 rounded-lg">
+          <h2 className="text-xl font-bold mb-4">📧 Test d'envoi d'emails</h2>
+          <p className="text-gray-600 mb-4">
+            Testez la configuration de l'envoi d'emails et diagnostiquez les problèmes.
+          </p>
+          <Link
+            href="/admin/test-email"
+            className="inline-block bg-blue-600 text-white px-6 py-2 rounded-md font-medium hover:bg-blue-700 transition"
+          >
+            Tester les emails →
+          </Link>
+        </div>
       </div>
     </div>
   );
