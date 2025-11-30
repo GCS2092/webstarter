@@ -35,7 +35,8 @@ export async function middleware(req: NextRequest) {
     req.nextUrl.pathname.startsWith("/admin/set-password") ||
     req.nextUrl.pathname.startsWith("/admin/add-admin") ||
     req.nextUrl.pathname.startsWith("/admin/check-status") ||
-    req.nextUrl.pathname.startsWith("/admin/test-email");
+    req.nextUrl.pathname.startsWith("/admin/test-email") ||
+    req.nextUrl.pathname.startsWith("/admin/test-set-password");
   
   // La page /admin/manage nécessite une authentification (c'est dans le dashboard)
 
