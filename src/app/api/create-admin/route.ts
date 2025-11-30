@@ -13,9 +13,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { email, password, name } = body;
 
-    if (!email || !password) {
+    if (!email) {
       return NextResponse.json(
-        { error: "Email et mot de passe requis" },
+        { error: "Email requis" },
+        { status: 400 }
+      );
+    }
+
+    // Mode "check_only" : juste vérifier si l'utilisateur existe
+    const checkOnly = password === "check_only";
+    
+    if (!checkOnly && !password) {
+      return NextResponse.json(
+        { error: "Mot de passe requis" },
         { status: 400 }
       );
     }
@@ -47,6 +57,16 @@ export async function POST(request: NextRequest) {
     const userExists = existingUser?.users?.some((u: any) => u.email === email);
 
     if (userExists) {
+      // Si mode check_only, juste retourner l'info
+      if (checkOnly) {
+        const user = existingUser.users.find((u: any) => u.email === email);
+        return NextResponse.json({
+          success: true,
+          exists: true,
+          message: "Utilisateur existe dans Supabase Auth",
+          userId: user?.id || "unknown",
+        });
+      }
       // L'utilisateur existe déjà, on le met à jour
       const user = existingUser.users.find((u: any) => u.email === email);
       
@@ -83,6 +103,15 @@ export async function POST(request: NextRequest) {
         success: true,
         message: "Utilisateur existant mis à jour et ajouté comme admin",
         userId: user?.id || "unknown",
+      });
+    }
+
+    // Si mode check_only et utilisateur n'existe pas
+    if (checkOnly) {
+      return NextResponse.json({
+        success: false,
+        exists: false,
+        message: "Utilisateur n'existe pas dans Supabase Auth",
       });
     }
 
