@@ -52,36 +52,82 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Vérifier si l'utilisateur existe déjà
-    const { data: existingUser } = await supabaseAdmin.auth.admin.listUsers();
-    const userExists = existingUser?.users?.some((u: any) => u.email === email);
+    // Fonction helper pour trouver un utilisateur par email
+    const findUserByEmail = async (emailToFind: string) => {
+      try {
+        // Essayer de lister tous les utilisateurs et chercher par email
+        // Note: listUsers() peut ne pas retourner tous les utilisateurs (pagination, filtres, etc.)
+        let page = 1;
+        let hasMore = true;
+        
+        while (hasMore) {
+          const { data: allUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers({
+            page: page,
+            perPage: 1000, // Maximum par page
+          });
+          
+          if (listError) {
+            console.error("Erreur listUsers:", listError);
+            break;
+          }
+          
+          const foundUser = allUsers?.users?.find((u: any) => 
+            u.email?.toLowerCase() === emailToFind.toLowerCase()
+          );
+          
+          if (foundUser) {
+            return foundUser;
+          }
+          
+          // Vérifier s'il y a plus de pages
+          hasMore = allUsers?.users && allUsers.users.length === 1000;
+          page++;
+          
+          // Limite de sécurité pour éviter les boucles infinies
+          if (page > 10) {
+            break;
+          }
+        }
+        
+        return null;
+      } catch (err) {
+        console.error("Erreur lors de la recherche d'utilisateur:", err);
+        return null;
+      }
+    };
 
-    if (userExists) {
+    // Vérifier si l'utilisateur existe déjà
+    const existingUser = await findUserByEmail(email);
+
+    if (existingUser) {
       // Si mode check_only, juste retourner l'info
       if (checkOnly) {
-        const user = existingUser.users.find((u: any) => u.email === email);
         return NextResponse.json({
           success: true,
           exists: true,
           message: "Utilisateur existe dans Supabase Auth",
-          userId: user?.id || "unknown",
+          userId: existingUser.id || "unknown",
         });
       }
+      
       // L'utilisateur existe déjà, on le met à jour
-      const user = existingUser.users.find((u: any) => u.email === email);
-      
-      if (!user) {
-        return NextResponse.json(
-          { error: "Utilisateur trouvé mais impossible de récupérer les détails" },
-          { status: 500 }
-        );
-      }
-      
       // Mettre à jour le mot de passe si fourni
       if (password) {
-        await supabaseAdmin.auth.admin.updateUserById(user.id, {
+        const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(existingUser.id, {
           password: password,
+          email_confirm: true, // Confirmer l'email
         });
+        
+        if (updateError) {
+          console.error("Erreur mise à jour mot de passe:", updateError);
+          return NextResponse.json(
+            { 
+              error: "Erreur lors de la mise à jour du mot de passe",
+              details: updateError.message 
+            },
+            { status: 400 }
+          );
+        }
       }
 
       // Ajouter dans admin_users si pas déjà présent
@@ -92,17 +138,21 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (!adminExists) {
-        await supabaseAdmin.from("admin_users").insert({
+        const { error: insertAdminError } = await supabaseAdmin.from("admin_users").insert({
           email: email,
           name: name || "Admin",
           is_active: true,
         });
+        
+        if (insertAdminError && !insertAdminError.message.includes("duplicate")) {
+          console.error("Erreur ajout admin:", insertAdminError);
+        }
       }
 
       return NextResponse.json({
         success: true,
         message: "Utilisateur existant mis à jour et ajouté comme admin",
-        userId: user?.id || "unknown",
+        userId: existingUser.id || "unknown",
       });
     }
 
@@ -124,6 +174,70 @@ export async function POST(request: NextRequest) {
 
     if (createError) {
       console.error("Erreur création utilisateur:", createError);
+      
+      // Si l'erreur indique que l'utilisateur existe déjà (duplicate key)
+      if (
+        createError.message?.includes("duplicate") ||
+        createError.message?.includes("users_email_partial_key") ||
+        createError.message?.includes("already exists")
+      ) {
+        // L'utilisateur existe mais n'a pas été trouvé par listUsers (peut-être un utilisateur invité)
+        // Essayer de le récupérer et le mettre à jour
+        console.log("Utilisateur existe déjà, tentative de récupération...");
+        
+        // Réessayer de trouver l'utilisateur (peut-être qu'il apparaît maintenant)
+        const foundUser = await findUserByEmail(email);
+        
+        if (foundUser) {
+          // Mettre à jour le mot de passe
+          const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(foundUser.id, {
+            password: password,
+            email_confirm: true,
+          });
+          
+          if (updateError) {
+            return NextResponse.json(
+              { 
+                error: "Utilisateur existe déjà mais erreur lors de la mise à jour",
+                details: updateError.message 
+              },
+              { status: 400 }
+            );
+          }
+          
+          // Ajouter dans admin_users
+          const { data: adminExists } = await supabaseAdmin
+            .from("admin_users")
+            .select("*")
+            .eq("email", email)
+            .single();
+
+          if (!adminExists) {
+            await supabaseAdmin.from("admin_users").insert({
+              email: email,
+              name: name || "Admin",
+              is_active: true,
+            });
+          }
+          
+          return NextResponse.json({
+            success: true,
+            message: "Utilisateur existant mis à jour et ajouté comme admin",
+            userId: foundUser.id,
+          });
+        }
+        
+        // Si on ne peut toujours pas trouver l'utilisateur, retourner une erreur explicite
+        return NextResponse.json(
+          { 
+            error: "L'utilisateur existe déjà dans Supabase Auth mais n'a pas pu être récupéré",
+            details: "Essayez d'utiliser la page /admin/set-password pour définir le mot de passe",
+            suggestion: "L'utilisateur peut être un utilisateur invité ou avoir un statut spécial"
+          },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
         { 
           error: "Erreur lors de la création de l'utilisateur",
