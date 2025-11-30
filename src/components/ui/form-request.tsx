@@ -3,21 +3,35 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { supabase } from "@/lib/supabase";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocale } from "@/contexts/LocaleContext";
+import { t } from "@/lib/i18n";
+import { getDefaultCountryCode, validatePhoneNumber, getPhonePlaceholder } from "@/lib/phone-validation";
+import { getDateFormatHint } from "@/lib/date-format";
+import { saveFormDraft, loadFormDraft, clearFormDraft, hasFormDraft } from "@/lib/form-storage";
+import { getDefaultCurrency, getBudgetOptionsWithCurrency } from "@/lib/currency";
+import PreviewModal from "./PreviewModal";
 
-const requestSchema = z.object({
-  client_name: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
-  client_email: z.string().email("Email invalide"),
-  client_phone: z.string().optional(),
-  project_type: z.string().min(1, "Veuillez indiquer le type de site"),
-  description: z.string().min(10, "La description doit contenir au moins 10 caractères"),
+// Schema de validation - les messages seront traduits dynamiquement
+const createRequestSchema = (locale: 'fr' | 'en' | 'es', countryCode?: string) => z.object({
+  client_name: z.string().min(2, t('error.name.min', locale)),
+  client_email: z.string().email(t('error.email.invalid', locale)),
+  client_phone: z.string().optional().refine((phone) => {
+    if (!phone || phone.trim() === '') return true; // Optionnel
+    const validation = validatePhoneNumber(phone, countryCode as any);
+    return validation.isValid;
+  }, {
+    message: t('error.phone.invalid', locale),
+  }),
+  project_type: z.string().min(1, t('error.type.required', locale)),
+  description: z.string().min(10, t('error.description.min', locale)),
   colors: z.string().optional(),
   budget: z.string().optional(),
   deadline: z.string().optional(),
   inspirations: z.string().optional(),
 });
 
-type RequestFormData = z.infer<typeof requestSchema>;
+type RequestFormData = z.infer<ReturnType<typeof createRequestSchema>>;
 
 // Palette de couleurs prédéfinies
 const COLOR_PALETTE = [
@@ -36,14 +50,80 @@ const COLOR_PALETTE = [
 ];
 
 export default function FormRequest() {
+  const { locale } = useLocale();
+  const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
-  const [customColor, setCustomColor] = useState("#000000");
-  const [budgetMin, setBudgetMin] = useState(500);
-  const [budgetMax, setBudgetMax] = useState(5000);
+  const [budgetRange, setBudgetRange] = useState<string>("");
   const [descriptionLength, setDescriptionLength] = useState(0);
+  const [countryCode, setCountryCode] = useState<string>(getDefaultCountryCode(locale));
+  const [showPreview, setShowPreview] = useState(false);
+  
+  // Mettre à jour le code pays quand la locale change
+  useEffect(() => {
+    setCountryCode(getDefaultCountryCode(locale));
+  }, [locale]);
+
+  // Charger le brouillon au montage
+  useEffect(() => {
+    const draft = loadFormDraft();
+    if (draft) {
+      // Restaurer les valeurs du formulaire
+      if (draft.client_name) setValue('client_name', draft.client_name);
+      if (draft.client_email) setValue('client_email', draft.client_email);
+      if (draft.client_phone) setValue('client_phone', draft.client_phone);
+      if (draft.project_type) setValue('project_type', draft.project_type);
+      if (draft.description) {
+        setValue('description', draft.description);
+        setDescriptionLength(draft.description.length);
+      }
+      if (draft.colors) setValue('colors', draft.colors);
+      if (draft.budget) {
+        setValue('budget', draft.budget);
+        setBudgetRange(draft.budget);
+      }
+      if (draft.deadline) setValue('deadline', draft.deadline);
+      if (draft.inspirations) setValue('inspirations', draft.inspirations);
+      if (draft.selectedColors) setSelectedColors(draft.selectedColors);
+      if (draft.currentStep) setCurrentStep(draft.currentStep);
+    }
+  }, []); // Seulement au montage
+
+  // Sauvegarder automatiquement le formulaire toutes les 2 secondes
+  useEffect(() => {
+    if (isSubmitting || submitSuccess) return;
+    
+    const saveInterval = setInterval(() => {
+      const formData = watch();
+      saveFormDraft({
+        ...formData,
+        selectedColors,
+        budgetRange,
+        currentStep,
+      });
+    }, 2000); // Sauvegarder toutes les 2 secondes
+
+    return () => clearInterval(saveInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColors, budgetRange, currentStep, isSubmitting, submitSuccess]);
+
+  // Budget prédéfini simplifié - traduit dynamiquement avec devise adaptée
+  const currency = getDefaultCurrency(locale);
+  const BUDGET_OPTIONS = getBudgetOptionsWithCurrency(locale, currency);
+
+  // Couleurs simplifiées (top 6) - traduites dynamiquement
+  const getSimpleColors = () => [
+    { name: t('color.blue', locale), hex: "#3B82F6" },
+    { name: t('color.red', locale), hex: "#EF4444" },
+    { name: t('color.green', locale), hex: "#10B981" },
+    { name: t('color.purple', locale), hex: "#8B5CF6" },
+    { name: t('color.black', locale), hex: "#000000" },
+    { name: t('color.white', locale), hex: "#FFFFFF" },
+  ];
+  
+  const SIMPLE_COLORS = getSimpleColors();
 
   const {
     register,
@@ -52,10 +132,17 @@ export default function FormRequest() {
     watch,
     setValue,
     formState: { errors },
+    trigger, // Pour déclencher la validation manuellement
   } = useForm<RequestFormData>({
-    resolver: zodResolver(requestSchema),
-    mode: "onBlur", // Valider au blur pour une meilleure UX
+    resolver: zodResolver(createRequestSchema(locale, countryCode)),
+    mode: "onChange", // Valider en temps réel pour une meilleure UX
+    reValidateMode: "onChange", // Re-valider après correction
   });
+  
+  // Re-créer le resolver quand le countryCode change
+  useEffect(() => {
+    // Le resolver sera recréé automatiquement au prochain render
+  }, [countryCode]);
 
   const description = watch("description") || "";
 
@@ -76,25 +163,31 @@ export default function FormRequest() {
     updateColorsValue();
   };
 
-  const addCustomColor = () => {
-    if (!selectedColors.includes(customColor) && selectedColors.length < 3) {
-      setSelectedColors([...selectedColors, customColor]);
-      updateColorsValue();
-    }
-  };
-
   const updateColorsValue = () => {
     const colorsString = selectedColors.join(", ");
     setValue("colors", colorsString);
   };
 
-  const handleBudgetChange = (type: "min" | "max", value: number) => {
-    if (type === "min") {
-      setBudgetMin(Math.min(value, budgetMax - 100));
-      setValue("budget", `${Math.min(value, budgetMax - 100)}€ - ${budgetMax}€`);
-    } else {
-      setBudgetMax(Math.max(value, budgetMin + 100));
-      setValue("budget", `${budgetMin}€ - ${Math.max(value, budgetMin + 100)}€`);
+  const handleBudgetSelect = (value: string) => {
+    setBudgetRange(value);
+    setValue("budget", value);
+  };
+
+  const handleNextStep = async () => {
+    // Valider uniquement les champs de l'étape 1
+    const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
+    if (isValid) {
+      setCurrentStep(2);
+    }
+  };
+
+  const handleSkipStep2 = async () => {
+    // Valider d'abord les champs de l'étape 1
+    const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
+    if (isValid) {
+      // Soumettre directement sans remplir l'étape 2
+      const formData = watch();
+      await onSubmit(formData as RequestFormData);
     }
   };
 
@@ -146,7 +239,7 @@ export default function FormRequest() {
           project_type: data.project_type,
           description: data.description,
           colors: selectedColors.length > 0 ? selectedColors.join(", ") : data.colors || null,
-          budget: data.budget || null,
+          budget: budgetRange || data.budget || null,
           deadline: data.deadline || null,
           inspirations: data.inspirations || null,
           status: "nouvelle",
@@ -190,11 +283,11 @@ export default function FormRequest() {
       }
 
       setSubmitSuccess(true);
+      clearFormDraft(); // Effacer le brouillon après soumission réussie
       reset();
       setUploadedFiles([]);
       setSelectedColors([]);
-      setBudgetMin(500);
-      setBudgetMax(5000);
+      setBudgetRange("");
       setDescriptionLength(0);
 
       setTimeout(() => {
@@ -213,10 +306,10 @@ export default function FormRequest() {
       <div className="max-w-2xl mx-auto p-8 text-center bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200 rounded-2xl shadow-lg animate-fade-in">
         <div className="text-6xl mb-4 animate-bounce">🎉</div>
         <h2 className="text-3xl font-bold text-green-800 mb-3">
-          Demande envoyée avec succès !
+          {t('success.title', locale)}
         </h2>
         <p className="text-green-700 mb-4 text-lg">
-          Merci pour votre demande. Notre équipe vous répondra sous 48h.
+          {t('success.message', locale)}
         </p>
         <p className="text-sm text-green-600">
           Vous recevrez un email de confirmation dans quelques instants.
@@ -229,39 +322,71 @@ export default function FormRequest() {
     <div className="max-w-3xl mx-auto p-6 md:p-8">
       <div className="mb-8 text-center">
         <h1 className="text-4xl md:text-5xl font-bold mb-3 bg-gradient-to-r from-black to-gray-700 bg-clip-text text-transparent">
-          Demande de site web
+          {t('form.title', locale)}
         </h1>
         <p className="text-gray-600 text-lg">
-          Remplissez ce formulaire et nous vous répondrons sous 48h ⚡
+          {t('form.subtitle', locale)}
         </p>
       </div>
 
+      {/* Indicateur de progression */}
+      <div className="mb-8">
+        <div className="flex items-center justify-center gap-4 mb-4">
+          <div className={`flex items-center gap-2 ${currentStep >= 1 ? "text-black" : "text-gray-400"}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+              currentStep >= 1 ? "bg-black text-white" : "bg-gray-200 text-gray-500"
+            }`}>
+              {currentStep > 1 ? "✓" : "1"}
+            </div>
+            <span className="font-semibold hidden sm:inline">{t('form.step1', locale)}</span>
+          </div>
+          <div className={`h-1 w-16 ${currentStep >= 2 ? "bg-black" : "bg-gray-200"}`}></div>
+          <div className={`flex items-center gap-2 ${currentStep >= 2 ? "text-black" : "text-gray-400"}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+              currentStep >= 2 ? "bg-black text-white" : "bg-gray-200 text-gray-500"
+            }`}>
+              2
+            </div>
+            <span className="font-semibold hidden sm:inline">{t('form.step2', locale)}</span>
+          </div>
+        </div>
+      </div>
+
       <form 
-        onSubmit={handleSubmit(
-          onSubmit,
-          (errors) => {
-            // Afficher les erreurs de validation
-            console.log("Erreurs de validation:", errors);
-            // Faire défiler vers la première erreur
-            const firstError = Object.keys(errors)[0];
-            if (firstError) {
-              setTimeout(() => {
-                const element = document.querySelector(`[name="${firstError}"]`);
-                if (element) {
-                  element.scrollIntoView({ behavior: "smooth", block: "center" });
-                  (element as HTMLElement).focus();
-                }
-              }, 100);
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (currentStep === 1) {
+            // Valider uniquement l'étape 1
+            const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
+            if (!isValid) {
+              const firstError = Object.keys(errors)[0];
+              if (firstError) {
+                setTimeout(() => {
+                  const element = document.querySelector(`[name="${firstError}"]`);
+                  if (element) {
+                    element.scrollIntoView({ behavior: "smooth", block: "center" });
+                    (element as HTMLElement).focus();
+                  }
+                }, 100);
+              }
+              return;
             }
+            // Passer à l'étape 2
+            setCurrentStep(2);
+            return;
           }
-        )} 
+          // Étape 2 : Afficher la prévisualisation
+          const formData = watch();
+          setShowPreview(true);
+        }} 
         className="space-y-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100"
+        noValidate
       >
         {/* Message d'erreur général */}
-        {Object.keys(errors).length > 0 && (
+        {Object.keys(errors).length > 0 && currentStep === 1 && (
           <div className="p-4 bg-red-50 border-2 border-red-200 rounded-lg">
             <p className="font-semibold text-red-800 mb-2">
-              ⚠️ Veuillez corriger les erreurs suivantes :
+              {t('error.general.title', locale)}
             </p>
             <ul className="list-disc list-inside text-sm text-red-700 space-y-1">
               {errors.client_name && <li>{errors.client_name.message}</li>}
@@ -272,320 +397,291 @@ export default function FormRequest() {
           </div>
         )}
 
-        {/* Informations personnelles */}
-        <div className="space-y-6">
-          <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
-            👤 Informations personnelles
-          </h2>
+        {/* ÉTAPE 1 : Informations essentielles */}
+        {currentStep === 1 && (
+          <>
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
+                {t('form.step1.title', locale)}
+              </h2>
 
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Nom complet <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register("client_name")}
-                className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.client_name ? "border-red-300 bg-red-50" : "border-gray-200"
-                }`}
-                placeholder="Votre nom complet"
-              />
-              {errors.client_name && (
-                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                  ⚠️ {errors.client_name.message}
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    {t('form.name.label', locale)} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    {...register("client_name")}
+                    className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
+                      errors.client_name ? "border-red-300 bg-red-50" : "border-gray-200"
+                    }`}
+                    placeholder={t('form.name.placeholder', locale)}
+                    aria-label={t('form.name.label', locale)}
+                    aria-required="true"
+                    aria-invalid={errors.client_name ? "true" : "false"}
+                    aria-describedby={errors.client_name ? "name-error" : undefined}
+                  />
+                  {errors.client_name && (
+                    <div id="name-error" className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+                      ⚠️ {errors.client_name.message}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Email <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="email"
-                {...register("client_email")}
-                className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
-                  errors.client_email ? "border-red-300 bg-red-50" : "border-gray-200"
-                }`}
-                placeholder="votre@email.com"
-              />
-              {errors.client_email && (
-                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                  ⚠️ {errors.client_email.message}
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    {t('form.email.label', locale)} <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    {...register("client_email")}
+                    className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
+                      errors.client_email ? "border-red-300 bg-red-50" : "border-gray-200"
+                    }`}
+                    placeholder={t('form.email.placeholder', locale)}
+                    aria-label={t('form.email.label', locale)}
+                    aria-required="true"
+                    aria-invalid={errors.client_email ? "true" : "false"}
+                    aria-describedby={errors.client_email ? "email-error" : undefined}
+                  />
+                  {errors.client_email && (
+                    <div id="email-error" className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+                      ⚠️ {errors.client_email.message}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-700">
-              Téléphone
-            </label>
-            <input
-              type="tel"
-              {...register("client_phone")}
-              className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
-              placeholder="+33 6 12 34 56 78"
-            />
-          </div>
-        </div>
-
-        {/* Détails du projet */}
-        <div className="space-y-6">
-          <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
-            🎯 Détails du projet
-          </h2>
-
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-700">
-              Type de site <span className="text-red-500">*</span>
-            </label>
-            <select
-              {...register("project_type")}
-              className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition bg-white ${
-                errors.project_type ? "border-red-300 bg-red-50" : "border-gray-200"
-              }`}
-            >
-              <option value="">Sélectionnez un type</option>
-              <option value="portfolio">Portfolio / Site vitrine</option>
-              <option value="ecommerce">E-commerce</option>
-              <option value="blog">Blog</option>
-              <option value="corporate">Site corporate</option>
-              <option value="landing">Landing page</option>
-              <option value="autre">Autre</option>
-            </select>
-            {errors.project_type && (
-              <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                ⚠️ {errors.project_type.message}
               </div>
-            )}
-          </div>
 
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-700">
-              Description du projet <span className="text-red-500">*</span>
-              <span className={`text-xs ml-2 ${description.length < 10 ? "text-red-500 font-semibold" : "text-gray-500"}`}>
-                ({description.length} caractères - minimum 10)
-              </span>
-            </label>
-            <textarea
-              {...register("description")}
-              onChange={(e) => {
-                setDescriptionLength(e.target.value.length);
-                register("description").onChange(e);
-              }}
-              rows={6}
-              className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none ${
-                errors.description ? "border-red-300 bg-red-50" : "border-gray-200"
-              }`}
-              placeholder="Décrivez votre projet en détail : objectifs, fonctionnalités souhaitées, public cible..."
-            />
-            {errors.description && (
-              <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
-                <p className="font-semibold">⚠️ {errors.description.message}</p>
-                {description.length < 10 && (
-                  <p className="text-xs mt-1">
-                    Il manque {10 - description.length} caractère(s) pour valider ce champ.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Palette de couleurs */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
-            🎨 Couleurs souhaitées
-          </h2>
-          <p className="text-sm text-gray-600">
-            Sélectionnez jusqu'à 3 couleurs (cliquez pour sélectionner/désélectionner)
-          </p>
-
-          <div className="grid grid-cols-6 md:grid-cols-8 gap-3">
-            {COLOR_PALETTE.map((color) => (
-              <button
-                key={color.hex}
-                type="button"
-                onClick={() => toggleColor(color.hex)}
-                className={`relative w-12 h-12 rounded-lg border-2 transition-all transform hover:scale-110 ${
-                  selectedColors.includes(color.hex)
-                    ? "border-black ring-2 ring-offset-2 ring-black scale-110"
-                    : "border-gray-300 hover:border-gray-400"
-                }`}
-                style={{ backgroundColor: color.hex }}
-                title={color.name}
-              >
-                {selectedColors.includes(color.hex) && (
-                  <span className="absolute inset-0 flex items-center justify-center text-white text-lg font-bold">
-                    ✓
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex gap-3 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-semibold mb-2 text-gray-700">
-                Couleur personnalisée
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="color"
-                  value={customColor}
-                  onChange={(e) => setCustomColor(e.target.value)}
-                  className="w-16 h-12 rounded-lg border-2 border-gray-200 cursor-pointer"
-                />
-                <input
-                  type="text"
-                  value={customColor}
-                  onChange={(e) => setCustomColor(e.target.value)}
-                  className="flex-1 border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black"
-                  placeholder="#000000"
-                />
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={addCustomColor}
-              disabled={selectedColors.length >= 3 || selectedColors.includes(customColor)}
-              className="px-4 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Ajouter
-            </button>
-          </div>
-
-          {selectedColors.length > 0 && (
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <p className="text-sm font-semibold mb-2">Couleurs sélectionnées :</p>
-              <div className="flex gap-2 flex-wrap">
-                {selectedColors.map((color) => (
-                  <div
-                    key={color}
-                    className="flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-gray-200"
-                  >
-                    <div
-                      className="w-4 h-4 rounded-full border border-gray-300"
-                      style={{ backgroundColor: color }}
-                    />
-                    <span className="text-sm">{color}</span>
-                    <button
-                      type="button"
-                      onClick={() => toggleColor(color)}
-                      className="text-gray-400 hover:text-red-500"
-                    >
-                      ×
-                    </button>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  {t('form.type.label', locale)} <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register("project_type")}
+                  className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition bg-white ${
+                    errors.project_type ? "border-red-300 bg-red-50" : "border-gray-200"
+                  }`}
+                  aria-label={t('form.type.label', locale)}
+                  aria-required="true"
+                  aria-invalid={errors.project_type ? "true" : "false"}
+                  aria-describedby={errors.project_type ? "type-error" : undefined}
+                >
+                  <option value="">{t('form.type.select', locale)}</option>
+                  <option value="portfolio">{t('form.type.portfolio', locale)}</option>
+                  <option value="ecommerce">{t('form.type.ecommerce', locale)}</option>
+                  <option value="blog">{t('form.type.blog', locale)}</option>
+                  <option value="corporate">{t('form.type.corporate', locale)}</option>
+                  <option value="landing">{t('form.type.landing', locale)}</option>
+                  <option value="autre">{t('form.type.other', locale)}</option>
+                </select>
+                {errors.project_type && (
+                  <div id="type-error" className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+                    ⚠️ {errors.project_type.message}
                   </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  {t('form.description.label', locale)} <span className="text-red-500">*</span>
+                  <span className={`text-xs ml-2 ${description.length < 10 ? "text-red-500 font-semibold" : "text-gray-500"}`}>
+                    ({description.length} {t('form.description.counter', locale)})
+                  </span>
+                </label>
+                <textarea
+                  {...register("description")}
+                  onChange={(e) => {
+                    setDescriptionLength(e.target.value.length);
+                    register("description").onChange(e);
+                  }}
+                  rows={6}
+                  className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none ${
+                    errors.description ? "border-red-300 bg-red-50" : "border-gray-200"
+                  }`}
+                  placeholder={t('form.description.placeholder', locale)}
+                  aria-label={t('form.description.label', locale)}
+                  aria-required="true"
+                  aria-invalid={errors.description ? "true" : "false"}
+                  aria-describedby={errors.description ? "description-error" : "description-hint"}
+                />
+                <div id="description-hint" className="text-xs text-gray-500 mt-1">
+                  {description.length} / 10 {t('form.description.counter', locale).split(' - ')[0]}
+                </div>
+                {errors.description && (
+                  <div id="description-error" className="mt-2 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm" role="alert">
+                    <p className="font-semibold">⚠️ {errors.description.message}</p>
+                    {description.length < 10 && (
+                      <p className="text-xs mt-1">
+                        {t('form.description.missing', locale, { count: (10 - description.length).toString() })}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Bouton étape 1 */}
+            <div className="flex gap-4">
+              <button
+                type="submit"
+                className="flex-1 bg-black text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] shadow-lg"
+              >
+                {t('form.continue', locale)}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ÉTAPE 2 : Détails optionnels */}
+        {currentStep === 2 && (
+          <>
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg mb-6">
+              <p className="text-sm text-blue-800">
+                {t('form.step2.info', locale)}
+              </p>
+            </div>
+
+            {/* Couleurs simplifiées */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
+                {t('form.colors.label', locale)}
+              </h2>
+              <p className="text-sm text-gray-600">
+                {t('form.colors.hint', locale)}
+              </p>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+                {SIMPLE_COLORS.map((color) => (
+                  <button
+                    key={color.hex}
+                    type="button"
+                    onClick={() => toggleColor(color.hex)}
+                    className={`relative w-full h-16 rounded-lg border-2 transition-all ${
+                      selectedColors.includes(color.hex)
+                        ? "border-black ring-2 ring-offset-2 ring-black"
+                        : "border-gray-300 hover:border-gray-400"
+                    }`}
+                    style={{ backgroundColor: color.hex }}
+                  >
+                    {selectedColors.includes(color.hex) && (
+                      <span className="absolute inset-0 flex items-center justify-center text-white text-lg font-bold drop-shadow-lg">
+                        ✓
+                      </span>
+                    )}
+                    <span className={`absolute bottom-1 left-1 right-1 text-xs font-medium ${
+                      color.hex === "#000000" || color.hex === "#FFFFFF" ? "text-gray-700" : "text-white"
+                    } drop-shadow`}>
+                      {color.name}
+                    </span>
+                  </button>
                 ))}
               </div>
             </div>
-          )}
-        </div>
 
-        {/* Budget avec slider */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
-            💰 Budget
-          </h2>
-
-          <div className="space-y-6">
-            <div>
-              <div className="flex justify-between mb-2">
-                <label className="text-sm font-semibold text-gray-700">Minimum</label>
-                <span className="text-lg font-bold text-gray-900">{budgetMin}€</span>
+            {/* Budget simplifié */}
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-gray-800 border-b-2 border-gray-200 pb-2">
+                {t('form.budget.label', locale)}
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {BUDGET_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => handleBudgetSelect(option.value)}
+                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                      budgetRange === option.value
+                        ? "border-black bg-black text-white"
+                        : "border-gray-200 hover:border-gray-400 bg-white"
+                    }`}
+                  >
+                    <span className="font-semibold">{option.label}</span>
+                  </button>
+                ))}
               </div>
-              <input
-                type="range"
-                min="0"
-                max="10000"
-                step="100"
-                value={budgetMin}
-                onChange={(e) => handleBudgetChange("min", parseInt(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
-              />
             </div>
 
+            {/* Téléphone avec validation par pays */}
             <div>
-              <div className="flex justify-between mb-2">
-                <label className="text-sm font-semibold text-gray-700">Maximum</label>
-                <span className="text-lg font-bold text-gray-900">{budgetMax}€</span>
-              </div>
+              <label className="block text-sm font-semibold mb-2 text-gray-700">
+                {t('form.phone.label', locale)} ({t('form.optional', locale)})
+              </label>
               <input
-                type="range"
-                min="0"
-                max="10000"
-                step="100"
-                value={budgetMax}
-                onChange={(e) => handleBudgetChange("max", parseInt(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
+                type="tel"
+                {...register("client_phone")}
+                className={`w-full border-2 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition ${
+                  errors.client_phone ? "border-red-300 bg-red-50" : "border-gray-200"
+                }`}
+                placeholder={getPhonePlaceholder(countryCode as any)}
+                aria-label={t('form.phone.label', locale)}
               />
-            </div>
-
-            <div className="p-4 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border-2 border-gray-200">
-              <p className="text-sm text-gray-600 mb-1">Budget estimé</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {budgetMin}€ - {budgetMax}€
+              {errors.client_phone && (
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+                  ⚠️ {errors.client_phone.message}
+                </div>
+              )}
+              <p className="mt-1 text-xs text-gray-500">
+                Format: {getPhonePlaceholder(countryCode as any)}
               </p>
             </div>
-          </div>
-        </div>
 
-        {/* Délai et inspirations */}
-        <div className="grid md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-700">
-              Délai souhaité
-            </label>
-            <input
-              type="date"
-              {...register("deadline")}
-              min={new Date().toISOString().split("T")[0]}
-              className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
-            />
-          </div>
+            {/* Délai et inspirations */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  {t('form.deadline.label', locale)}
+                </label>
+                <input
+                  type="date"
+                  {...register("deadline")}
+                  min={new Date().toISOString().split("T")[0]}
+                  className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition"
+                  aria-label={t('form.deadline.label', locale)}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Format: {getDateFormatHint(locale)}
+                </p>
+              </div>
 
-          <div>
-            <label className="block text-sm font-semibold mb-2 text-gray-700">
-              Inspirations / Exemples
-            </label>
-            <textarea
-              {...register("inspirations")}
-              rows={3}
-              className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none"
-              placeholder="Partagez des liens de sites qui vous inspirent..."
-            />
-          </div>
-        </div>
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  {t('form.inspirations.label', locale)}
+                </label>
+                <textarea
+                  {...register("inspirations")}
+                  rows={3}
+                  className="w-full border-2 border-gray-200 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-black focus:border-transparent transition resize-none"
+                  placeholder={t('form.inspirations.placeholder', locale)}
+                />
+              </div>
+            </div>
 
-        {/* Upload de fichiers */}
-        <div>
-          <label className="block text-sm font-semibold mb-2 text-gray-700">
-            📎 Fichiers (logo, photos, documents)
-          </label>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition">
-            <input
-              type="file"
-              multiple
-              onChange={handleFileChange}
-              className="hidden"
-              id="file-upload"
-              accept="image/*,.pdf,.doc,.docx"
-            />
-            <label
-              htmlFor="file-upload"
-              className="cursor-pointer block"
-            >
-              <div className="text-4xl mb-2">📁</div>
-              <p className="text-gray-600 mb-1">
-                Cliquez pour sélectionner des fichiers
-              </p>
-              <p className="text-xs text-gray-500">
-                Images, PDF, Word (max 50MB par fichier)
-              </p>
-            </label>
-          </div>
+            {/* Upload de fichiers */}
+            <div>
+              <label className="block text-sm font-semibold mb-2 text-gray-700">
+                {t('form.files.label', locale)}
+              </label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition">
+                <input
+                  type="file"
+                  multiple
+                  onChange={handleFileChange}
+                  className="hidden"
+                  id="file-upload"
+                  accept="image/*,.pdf,.doc,.docx"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="cursor-pointer block"
+                >
+                  <div className="text-4xl mb-2">📁</div>
+                  <p className="text-gray-600 mb-1">
+                    {t('form.files.click', locale)}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {t('form.files.hint', locale)}
+                  </p>
+                </label>
+              </div>
 
           {uploadedFiles.length > 0 && (
             <div className="mt-4 space-y-2">
@@ -620,22 +716,57 @@ export default function FormRequest() {
           )}
         </div>
 
-        {/* Bouton de soumission */}
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full bg-gradient-to-r from-black to-gray-800 text-white px-8 py-4 rounded-lg font-bold text-lg hover:from-gray-800 hover:to-black transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg"
-        >
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="animate-spin">⏳</span>
-              Envoi en cours...
-            </span>
-          ) : (
-            "Envoyer la demande 🚀"
-          )}
-        </button>
+            {/* Boutons étape 2 */}
+            <div className="flex gap-4 pt-4">
+              <button
+                type="button"
+                onClick={() => setCurrentStep(1)}
+                className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition"
+              >
+                {t('form.back', locale)}
+              </button>
+              <button
+                type="button"
+                onClick={handleSkipStep2}
+                disabled={isSubmitting}
+                className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition disabled:opacity-50"
+              >
+                {t('form.skip', locale)}
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 bg-black text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-800 transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="animate-spin">⏳</span>
+                    {t('form.submitting', locale)}
+                  </span>
+                ) : (
+                  t('form.submit', locale)
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </form>
+
+      {/* Modal de prévisualisation */}
+      <PreviewModal
+        isOpen={showPreview}
+        onClose={() => setShowPreview(false)}
+        onConfirm={() => {
+          setShowPreview(false);
+          handleSubmit(onSubmit)();
+        }}
+        formData={{
+          ...watch(),
+          selectedColors,
+          budget: budgetRange || watch('budget'),
+        }}
+        locale={locale}
+      />
     </div>
   );
 }

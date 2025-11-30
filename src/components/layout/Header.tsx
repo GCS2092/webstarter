@@ -2,10 +2,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useLocale } from "@/contexts/LocaleContext";
+import { t } from "@/lib/i18n";
+import LanguageSelector from "@/components/ui/LanguageSelector";
 
 export default function Header() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { locale } = useLocale();
 
   return (
     <header className="border-b border-gray-200 bg-white sticky top-0 z-50">
@@ -18,7 +22,7 @@ export default function Header() {
           </div>
 
           {/* Desktop menu */}
-          <div className="hidden md:flex items-center space-x-8">
+          <div className="hidden md:flex items-center space-x-6">
             <Link
               href="/"
               className={`text-sm font-medium transition ${
@@ -27,7 +31,7 @@ export default function Header() {
                   : "text-gray-600 hover:text-black"
               }`}
             >
-              Accueil
+              {t('nav.home', locale)}
             </Link>
             <Link
               href="/about"
@@ -37,20 +41,21 @@ export default function Header() {
                   : "text-gray-600 hover:text-black"
               }`}
             >
-              À propos
+              {t('nav.about', locale)}
             </Link>
             <Link
               href="/request"
               className="bg-black text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-800 transition"
             >
-              Je veux un site web
+              {t('nav.request', locale)}
             </Link>
             <Link
               href="/admin"
               className="text-sm font-medium text-gray-600 hover:text-black transition"
             >
-              Admin
+              {t('nav.admin', locale)}
             </Link>
+            <LanguageSelector />
           </div>
 
           {/* Mobile menu button */}
@@ -106,7 +111,7 @@ export default function Header() {
                     : "text-gray-600 hover:bg-gray-50 hover:text-black"
                 }`}
               >
-                Accueil
+                {t('nav.home', locale)}
               </Link>
               <Link
                 href="/about"
@@ -117,22 +122,25 @@ export default function Header() {
                     : "text-gray-600 hover:bg-gray-50 hover:text-black"
                 }`}
               >
-                À propos
+                {t('nav.about', locale)}
               </Link>
               <Link
                 href="/request"
                 onClick={() => setMobileMenuOpen(false)}
                 className="block px-3 py-2 rounded-md text-base font-medium bg-black text-white hover:bg-gray-800 transition"
               >
-                Je veux un site web
+                {t('nav.request', locale)}
               </Link>
               <Link
                 href="/admin"
                 onClick={() => setMobileMenuOpen(false)}
                 className="block px-3 py-2 rounded-md text-base font-medium text-gray-600 hover:bg-gray-50 hover:text-black transition"
               >
-                Admin
+                {t('nav.admin', locale)}
               </Link>
+              <div className="px-3 py-2">
+                <LanguageSelector />
+              </div>
             </div>
           </div>
         )}
