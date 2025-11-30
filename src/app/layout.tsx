@@ -5,7 +5,6 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { LocaleProvider } from "@/contexts/LocaleContext";
 import NotificationPermission from "@/components/NotificationPermission";
-import NotificationPermission from "@/components/NotificationPermission";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
