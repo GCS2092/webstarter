@@ -99,7 +99,7 @@ export default function CheckAdminStatusPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black"
+              className="flex-1 border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
               placeholder="email@exemple.com"
             />
             <button

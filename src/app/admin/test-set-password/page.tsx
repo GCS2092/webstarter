@@ -60,7 +60,7 @@ export default function TestSetPasswordPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full border border-gray-300 rounded-md p-2"
+                className="w-full border border-gray-300 rounded-md p-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                 placeholder="email@exemple.com"
               />
             </div>
@@ -72,7 +72,7 @@ export default function TestSetPasswordPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-gray-300 rounded-md p-2"
+                className="w-full border border-gray-300 rounded-md p-2 text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
                 placeholder="test123456"
               />
             </div>

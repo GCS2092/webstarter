@@ -27,9 +27,16 @@ export default function AddAdminPage() {
         .limit(1);
 
       if (checkError) {
-        setError(
-          "La table admin_users n'existe pas. Exécutez d'abord le script supabase-admin-setup.sql dans Supabase."
-        );
+        // Vérifier si c'est une erreur CORS ou une table manquante
+        if (checkError.message?.includes("CORS") || checkError.message?.includes("NetworkError") || checkError.message?.includes("fetch")) {
+          setError(
+            "Erreur de connexion à Supabase (CORS). Vérifiez que votre domaine est autorisé dans les paramètres Supabase (Settings → API → CORS)."
+          );
+        } else {
+          setError(
+            "La table admin_users n'existe pas. Exécutez d'abord le script supabase-admin-setup.sql dans Supabase."
+          );
+        }
         setLoading(false);
         return;
       }
@@ -132,7 +139,7 @@ export default function AddAdminPage() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black"
+              className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
               placeholder="Nom de l'admin"
             />
           </div>
@@ -146,7 +153,7 @@ export default function AddAdminPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black"
+              className="w-full border border-gray-300 rounded-md p-3 focus:outline-none focus:ring-2 focus:ring-black text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-800"
               placeholder="email@exemple.com"
             />
             <p className="text-xs text-gray-500 mt-1">
@@ -170,7 +177,7 @@ export default function AddAdminPage() {
           </p>
           <code className="block bg-white p-2 rounded border text-xs overflow-x-auto">
             INSERT INTO admin_users (email, name, is_active)<br />
-            VALUES ('slovengama@gmail.com', 'Admin Principal', true)<br />
+            VALUES (&apos;slovengama@gmail.com&apos;, &apos;Admin Principal&apos;, true)<br />
             ON CONFLICT (email) DO UPDATE SET is_active = true;
           </code>
         </div>
