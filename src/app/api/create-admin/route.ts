@@ -173,7 +173,12 @@ export async function POST(request: NextRequest) {
     });
 
     if (createError) {
-      console.error("Erreur création utilisateur:", createError);
+      console.error("Erreur création utilisateur:", {
+        message: createError.message,
+        status: createError.status,
+        name: createError.name,
+        fullError: JSON.stringify(createError, null, 2),
+      });
       
       // Si l'erreur indique que l'utilisateur existe déjà (duplicate key)
       if (
@@ -238,10 +243,29 @@ export async function POST(request: NextRequest) {
         );
       }
       
+      // Vérifier si l'erreur est liée à la configuration des URLs
+      if (
+        createError.message?.includes("redirect") ||
+        createError.message?.includes("URL") ||
+        createError.message?.includes("invalid") ||
+        createError.status === 400
+      ) {
+        return NextResponse.json(
+          { 
+            error: "Erreur de configuration Supabase",
+            details: createError.message || "Erreur lors de la création de l'utilisateur",
+            suggestion: "Vérifiez la configuration des URLs dans Supabase (Authentication → URL Configuration). Voir SUPABASE_URL_CONFIG.md pour plus de détails.",
+            checkUrl: "https://supabase.com/dashboard/project/_/settings/auth"
+          },
+          { status: 400 }
+        );
+      }
+      
       return NextResponse.json(
         { 
           error: "Erreur lors de la création de l'utilisateur",
-          details: createError.message 
+          details: createError.message || "Erreur inconnue",
+          status: createError.status,
         },
         { status: 400 }
       );
