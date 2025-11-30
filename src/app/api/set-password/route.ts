@@ -52,11 +52,18 @@ export async function POST(request: NextRequest) {
       console.error("Variables d'environnement manquantes:", {
         NEXT_PUBLIC_SUPABASE_URL: !!supabaseUrl,
         SUPABASE_SERVICE_ROLE_KEY: !!supabaseServiceKey,
+        supabaseUrlLength: supabaseUrl?.length || 0,
+        serviceKeyLength: supabaseServiceKey?.length || 0,
       });
       return NextResponse.json(
         { 
           error: "Configuration Supabase manquante",
-          details: "SUPABASE_SERVICE_ROLE_KEY doit être configuré dans les variables d'environnement Vercel"
+          details: "SUPABASE_SERVICE_ROLE_KEY doit être configuré dans les variables d'environnement Vercel",
+          debug: {
+            hasUrl: !!supabaseUrl,
+            hasServiceKey: !!supabaseServiceKey,
+            urlPreview: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : "non défini",
+          }
         },
         { status: 500 }
       );
