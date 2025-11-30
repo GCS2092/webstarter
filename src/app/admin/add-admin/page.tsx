@@ -41,7 +41,35 @@ export default function AddAdminPage() {
         return;
       }
 
-      // Ajouter l'utilisateur dans admin_users
+      // Vérifier d'abord si l'utilisateur existe déjà
+      const { data: existingAdmin } = await supabase
+        .from("admin_users")
+        .select("email, name, is_active")
+        .eq("email", email)
+        .single();
+
+      if (existingAdmin) {
+        // L'utilisateur existe déjà, on le met à jour
+        const { error: updateError } = await supabase
+          .from("admin_users")
+          .update({
+            is_active: true,
+            name: name,
+          })
+          .eq("email", email);
+
+        if (updateError) {
+          setError(`Erreur lors de la mise à jour: ${updateError.message}`);
+          setLoading(false);
+          return;
+        }
+
+        setSuccess(true);
+        setLoading(false);
+        return;
+      }
+
+      // Ajouter l'utilisateur dans admin_users s'il n'existe pas
       const { data, error: insertError } = await supabase
         .from("admin_users")
         .insert({
@@ -53,8 +81,13 @@ export default function AddAdminPage() {
         .single();
 
       if (insertError) {
-        // Si l'utilisateur existe déjà, on le met à jour
-        if (insertError.code === "23505" || insertError.message.includes("duplicate")) {
+        // Si l'utilisateur existe déjà (erreur 409 ou code 23505), on le met à jour
+        if (
+          insertError.code === "23505" || 
+          insertError.message?.includes("duplicate") ||
+          insertError.message?.includes("409") ||
+          insertError.message?.includes("conflict")
+        ) {
           const { error: updateError } = await supabase
             .from("admin_users")
             .update({
@@ -71,7 +104,7 @@ export default function AddAdminPage() {
 
           setSuccess(true);
         } else {
-          setError(`Erreur: ${insertError.message}`);
+          setError(`Erreur: ${insertError.message || "Erreur inconnue"}`);
         }
       } else {
         setSuccess(true);
