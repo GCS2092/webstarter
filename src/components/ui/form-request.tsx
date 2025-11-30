@@ -135,8 +135,9 @@ export default function FormRequest() {
     trigger, // Pour déclencher la validation manuellement
   } = useForm<RequestFormData>({
     resolver: zodResolver(createRequestSchema(locale, countryCode)),
-    mode: "onChange", // Valider en temps réel pour une meilleure UX
+    mode: "onBlur", // Valider au blur pour éviter trop de validations
     reValidateMode: "onChange", // Re-valider après correction
+    shouldUnregister: false, // Garder les valeurs même si non enregistrées
   });
   
   // Re-créer le resolver quand le countryCode change
@@ -182,12 +183,19 @@ export default function FormRequest() {
   };
 
   const handleSkipStep2 = async () => {
-    // Valider d'abord les champs de l'étape 1
-    const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
-    if (isValid) {
-      // Soumettre directement sans remplir l'étape 2
-      const formData = watch();
-      await onSubmit(formData as RequestFormData);
+    try {
+      // Valider d'abord les champs de l'étape 1
+      const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
+      if (isValid) {
+        // Soumettre directement sans remplir l'étape 2
+        const formData = watch();
+        await onSubmit(formData as RequestFormData);
+      }
+    } catch (error: any) {
+      // Capturer silencieusement les erreurs Zod
+      if (error?.name !== 'ZodError') {
+        console.error("Erreur lors de la soumission:", error);
+      }
     }
   };
 
@@ -248,6 +256,13 @@ export default function FormRequest() {
         .single();
 
       if (projectError) {
+        console.error("Erreur Supabase:", projectError);
+        // Vérifier si c'est une erreur CORS
+        if (projectError.message?.includes("CORS") || projectError.message?.includes("NetworkError") || projectError.code === "PGRST301") {
+          alert("Erreur de connexion. Vérifiez votre connexion internet et réessayez. Si le problème persiste, contactez le support.");
+        } else {
+          alert(`Erreur lors de l'envoi: ${projectError.message || "Erreur inconnue"}`);
+        }
         throw projectError;
       }
 
@@ -355,29 +370,40 @@ export default function FormRequest() {
       <form 
         onSubmit={async (e) => {
           e.preventDefault();
-          if (currentStep === 1) {
-            // Valider uniquement l'étape 1
-            const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
-            if (!isValid) {
-              const firstError = Object.keys(errors)[0];
-              if (firstError) {
-                setTimeout(() => {
-                  const element = document.querySelector(`[name="${firstError}"]`);
-                  if (element) {
-                    element.scrollIntoView({ behavior: "smooth", block: "center" });
-                    (element as HTMLElement).focus();
-                  }
-                }, 100);
+          e.stopPropagation();
+          
+          try {
+            if (currentStep === 1) {
+              // Valider uniquement l'étape 1
+              const isValid = await trigger(["client_name", "client_email", "project_type", "description"]);
+              if (!isValid) {
+                // Attendre que les erreurs soient mises à jour
+                await new Promise(resolve => setTimeout(resolve, 100));
+                const firstError = Object.keys(errors)[0];
+                if (firstError) {
+                  setTimeout(() => {
+                    const element = document.querySelector(`[name="${firstError}"]`);
+                    if (element) {
+                      element.scrollIntoView({ behavior: "smooth", block: "center" });
+                      (element as HTMLElement).focus();
+                    }
+                  }, 100);
+                }
+                return;
               }
+              // Passer à l'étape 2
+              setCurrentStep(2);
               return;
             }
-            // Passer à l'étape 2
-            setCurrentStep(2);
-            return;
+            // Étape 2 : Afficher la prévisualisation
+            const formData = watch();
+            setShowPreview(true);
+          } catch (error: any) {
+            // Capturer silencieusement les erreurs Zod pour éviter qu'elles apparaissent dans la console
+            if (error?.name !== 'ZodError') {
+              console.error("Erreur lors de la soumission:", error);
+            }
           }
-          // Étape 2 : Afficher la prévisualisation
-          const formData = watch();
-          setShowPreview(true);
         }} 
         className="space-y-8 bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-gray-100"
         noValidate
