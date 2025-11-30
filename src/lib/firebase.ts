@@ -25,13 +25,35 @@ export async function getFCMToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
   
   try {
+    // Vérifier que le service worker est enregistré
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      console.log('Service Worker prêt:', registration);
+    }
+
     const messaging = getMessaging(app);
     const token = await getToken(messaging, {
-      vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "BDylwcUQcdOS1yGIqB8SqlDFrH4lTliAFD4SnorGq5mtlP_6Rlr30Yo98p_f9do9Jq48einPSPyR4rypcHY1BhE"
+      vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY || "BDylwcUQcdOS1yGIqB8SqlDFrH4lTliAFD4SnorGq5mtlP_6Rlr30Yo98p_f9do9Jq48einPSPyR4rypcHY1BhE",
+      serviceWorkerRegistration: await navigator.serviceWorker.ready
     });
+    
+    if (token) {
+      console.log('Token FCM obtenu:', token);
+    } else {
+      console.log('Aucun token FCM disponible. Demandez la permission de notification.');
+    }
+    
     return token;
-  } catch (error) {
+  } catch (error: any) {
     console.error("Erreur lors de la récupération du token FCM:", error);
+    
+    // Gérer les erreurs courantes
+    if (error.code === 'messaging/permission-blocked') {
+      console.warn('Les notifications sont bloquées par l\'utilisateur');
+    } else if (error.code === 'messaging/registration-token-not-found') {
+      console.warn('Service Worker non trouvé. Vérifiez que firebase-messaging-sw.js est dans public/');
+    }
+    
     return null;
   }
 }
